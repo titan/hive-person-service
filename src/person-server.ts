@@ -3,7 +3,7 @@ import * as bunyan from "bunyan";
 import * as uuid from "uuid";
 import * as bluebird from "bluebird";
 import { RedisClient, Multi } from "redis";
-import { verify, uuidVerifier, stringVerifier, numberVerifier, arrayVerifier } from "hive-verify";
+import { verify, uuidVerifier, stringVerifier, numberVerifier, arrayVerifier, booleanVerifier } from "hive-verify";
 import { Person } from "person-library";
 
 const log = bunyan.createLogger({
@@ -33,111 +33,92 @@ const adminOnly: Permission[] = [["mobile", false], ["admin", true]];
 export const server = new Server();
 
 
-server.callAsync("createPerson", allowAll, "创建人员信息", "创建人员信息", async (ctx: ServerContext,
-  people: Person[]) => {
+server.callAsync("createPerson", allowAll, "创建人员信息", "创建人员信息", async (ctx: ServerContext, people: Person[]): Promise<any> => {
   log.info(`createPerson, sn: ${ctx.sn}, uid: ${ctx.uid}, people: ${JSON.stringify(people)}`);
   try {
-    await verify([
-      arrayVerifier("people", people)
-    ]);
-  } catch (err) {
-    ctx.report(3, err);
-    return {
-      code: 400,
-      msg: err
-    };
+    await verify([arrayVerifier("people", people)]);
+  } catch (e) {
+    log.info(e);
+    ctx.report(3, e);
+    return { code: 400, msg: e.message };
   }
   try {
-
-  } catch (err) {
-
+    const pkt: CmdPacket = { cmd: "createPerson", args: people };
+    ctx.publish(pkt);
+    return await waitingAsync(ctx);
+  } catch (e) {
+    log.info(e);
+    throw e;
   }
 });
 
-server.callAsync("getPerson", allowAll, "获取人员信息", "获取人员信息", async (ctx: ServerContext,
-  pid: string) => {
+server.callAsync("getPerson", allowAll, "获取人员信息", "获取人员信息", async (ctx: ServerContext, pid: string): Promise<any> => {
   log.info(`getPerson, sn: ${ctx.sn}, uid: ${ctx.uid}, pid: ${pid}`);
   try {
-    await verify([
-      uuidVerifier("pid", pid)
-    ]);
-  } catch (err) {
-    ctx.report(3, err);
-    return {
-      code: 400,
-      msg: err
-    };
-
+    await verify([uuidVerifier("pid", pid)]);
+  } catch (e) {
+    log.info(e);
+    ctx.report(3, e);
+    return { code: 400, msg: e.message };
   }
   try {
-
-  } catch (err) {
-
+    const prep = await ctx.cache.hgetAsync("person-entities", pid);
+    if (prep !== null && prep !== "") {
+      const person = await msgpack_decode_async(prep);
+      return { code: 200, data: person };
+    } else {
+      return { code: 404, msg: "未找到对应人员信息" };
+    }
+  } catch (e) {
+    log.info(e);
+    throw e;
   }
 });
 
-// server.callAsync("addDrivers", allowAll, "添加驾驶人信息", "添加驾驶人信息, 注意，一辆车只能拥有 3 位驾驶人", async (ctx: ServerContext,
-//   oid: string,
-//   drivers: Person[]) => {
-// 
-// });
-// 
-// server.callAsync("delDrivers", allowAll, "删除驾驶人信息", "删除驾驶人信息，注意，一辆车只能拥有 3 位驾驶人", async (ctx: ServerContext,
-//   oid: string,
-//   driver_ids: string[]) => {
-// 
-// });
 
-// server.callAsync("uploadImages", allowAll, "上传证件照", "上传证件照", async (ctx: ServerContext,
-//   vid: string,
-//   driving_frontal_view: string,
-//   driving_rear_view: string,
-//   identity_frontal_view: string,
-//   identity_rear_view: string,
-//   license_frontal_view: Object) => {
-// 
-// });
-
-server.callAsync("updatePerson", allowAll, "上传证件照", "上传证件照", async (ctx: ServerContext,
-  pid: string,
-  identity_frontal_view: string,
-  identity_rear_view: string,
-  license_frontal_view: string) => {
+server.callAsync("updateViews", allowAll, "上传证件照", "上传证件照", async (ctx: ServerContext, pid: string, identity_frontal_view?: string, identity_rear_view?: string, license_frontal_view?: string): Promise<any> => {
   log.info(`updatePerson, sn: ${ctx.sn}, uid: ${ctx.uid}, pid: ${pid}, identity_frontal_view: ${identity_frontal_view}, identity_rear_view: ${identity_rear_view}`);
   try {
-    await verify([
-      uuidVerifier("pid", pid)
-    ]);
-  } catch (err) {
-    ctx.report(3, err);
-    return {
-      code: 400,
-      msg: err
-    };
+    await verify([uuidVerifier("pid", pid)]);
+  } catch (e) {
+    log.info(e);
+    ctx.report(3, e);
+    return { code: 400, msg: e };
   }
   try {
-
-  } catch (err) {
-
+    const args = [pid, identity_frontal_view ? identity_frontal_view : "", identity_rear_view ? identity_rear_view : "", license_frontal_view ? license_frontal_view : ""];
+    const pkt: CmdPacket = { cmd: "updateViews", args: args };
+    ctx.publish(pkt);
+    return await waitingAsync(ctx);
+  } catch (e) {
+    log.info(e);
+    throw e;
   }
 });
-server.callAsync("setPersonVerified", allowAll, "设置人员认证标志", "设置人员认证标志", async (ctx: ServerContext,
-  identity_no: string,
-  flag: boolean) => {
+server.callAsync("setPersonVerified", allowAll, "设置人员认证标志", "设置人员认证标志", async (ctx: ServerContext, identity_no: string, flag: boolean) => {
+  log.info(`setPersonVerified, uid: ${ctx.uid}, identity_no: ${identity_no},flag: ${false}`);
   try {
-    await verify([
-
-    ]);
-  } catch (err) {
-    ctx.report(3, err);
-    return {
-      code: 400,
-      msg: err
-    };
+    await verify([stringVerifier("identity_no", identity_no), booleanVerifier("flag", flag)]);
+  } catch (e) {
+    log.info(e);
+    ctx.report(3, e);
+    return { code: 400, msg: e };
   }
   try {
-
-  } catch (err) {
-
+    const args = [identity_no, flag];
+    const pkt: CmdPacket = { cmd: "setPersonVerified", args: args };
+    ctx.publish(pkt);
+    return await waitingAsync(ctx);
+  } catch (e) {
+    log.info(e);
+    throw e;
   }
+});
+
+server.callAsync("refresh", adminOnly, "刷新person缓存", "支持单个刷新", async (ctx: ServerContext, id?: string) => {
+  log.info(`refresh, id: ${id ? id : ""}`);
+  const args = id ? [id] : [];
+  const pkt: CmdPacket = { cmd: "setPersonVerified", args: args };
+  ctx.publish(pkt);
+  return await waitingAsync(ctx);
 });
