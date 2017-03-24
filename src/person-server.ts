@@ -43,7 +43,7 @@ server.callAsync("createPerson", allowAll, "创建人员信息", "创建人员�
     return { code: 400, msg: e.message };
   }
   try {
-    const pkt: CmdPacket = { cmd: "createPerson", args: people };
+    const pkt: CmdPacket = { cmd: "createPerson", args: [people] };
     ctx.publish(pkt);
     return await waitingAsync(ctx);
   } catch (e) {
@@ -76,20 +76,24 @@ server.callAsync("getPerson", allowAll, "获取人员信息", "获取人员信�
 });
 
 
-server.callAsync("updateViews", allowAll, "上传证件照", "上传证件照", async (ctx: ServerContext, pid: string, identity_frontal_view?: string, identity_rear_view?: string, license_frontal_view?: string): Promise<any> => {
-  log.info(`updatePerson, sn: ${ctx.sn}, uid: ${ctx.uid}, pid: ${pid}, identity_frontal_view: ${identity_frontal_view}, identity_rear_view: ${identity_rear_view}`);
+server.callAsync("updateViews", allowAll, "上传证件照", "上传证件照", async (ctx: ServerContext, images): Promise<any> => {
+  log.info(`updateViews, sn: ${ctx.sn}, uid: ${ctx.uid}, images: ${JSON.stringify(images)}`);
   try {
-    await verify([uuidVerifier("pid", pid)]);
+    await verify([arrayVerifier("images", images)]);
   } catch (e) {
     log.info(e);
     ctx.report(3, e);
     return { code: 400, msg: e };
   }
   try {
-    const args = [pid, identity_frontal_view ? identity_frontal_view : "", identity_rear_view ? identity_rear_view : "", license_frontal_view ? license_frontal_view : ""];
-    const pkt: CmdPacket = { cmd: "updateViews", args: args };
-    ctx.publish(pkt);
-    return await waitingAsync(ctx);
+    if (images.length === 0) {
+      return { code: 200, data: "success" };
+    } else {
+      const args = [images];
+      const pkt: CmdPacket = { cmd: "updateViews", args: args };
+      ctx.publish(pkt);
+      return await waitingAsync(ctx);
+    }
   } catch (e) {
     log.info(e);
     throw e;
@@ -118,7 +122,7 @@ server.callAsync("setPersonVerified", allowAll, "设置人员认证标志", "设
 server.callAsync("refresh", adminOnly, "刷新person缓存", "支持单个刷新", async (ctx: ServerContext, id?: string) => {
   log.info(`refresh, id: ${id ? id : ""}`);
   const args = id ? [id] : [];
-  const pkt: CmdPacket = { cmd: "setPersonVerified", args: args };
+  const pkt: CmdPacket = { cmd: "refresh", args: args };
   ctx.publish(pkt);
   return await waitingAsync(ctx);
 });

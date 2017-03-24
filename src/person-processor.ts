@@ -30,7 +30,7 @@ const log = bunyan.createLogger({
 export const processor = new Processor();
 
 processor.callAsync("createPerson", async (ctx: ProcessorContext, people: Object[]) => {
-  log.info(`createPerson, people:${people}`);
+  log.info(`createPerson, people:${JSON.stringify(people)}`);
   const db: PGClient = ctx.db;
   const cache: RedisClient = ctx.cache;
   try {
@@ -38,21 +38,37 @@ processor.callAsync("createPerson", async (ctx: ProcessorContext, people: Object
     const pids = [];
     const cpids = [];
     for (const p of people) {
-      const prep = db.query("SELECT id, identiy_no, phone, verified FROM person WHERE identiy_no = $1", [p["identiy_no"]]);
+      const prep = await db.query("SELECT id, name, identity_no, phone, verified FROM person WHERE identity_no = $1", [p["identity_no"]]);
+      log.info("prep" + JSON.stringify(prep));
       if (prep["rowCount"] === 0) {
         const id = uuid.v1();
         pids.push(id);
-        cpids.push(id);
-        await db.query("INSERT INTO person(id, name, identiy_no, phone) VALUES($1,$2,$3,$4)", [id, p["name"], p["identiy_no"], p["phone"] ? p["phone"] : ""]);
+        const cp = {
+          id: id,
+          name: p["name"],
+          identity_no: p["identity_no"]
+        };
+        cpids.push(cp);
+        await db.query("INSERT INTO person(id, name, identity_no, phone) VALUES($1,$2,$3,$4)", [id, p["name"], p["identity_no"], p["phone"] ? p["phone"] : ""]);
       } else {
         const old_p = prep["rows"][0];
         if (old_p["verified"] === false) {
           const phone = old_p["phone"];
-          await db.query("UPDATE person SET name = $1, phone = $2 WHERE identiy_no = $3", [p["name"], p["phone"] ? p["phone"] : old_p["phone"], p["identiy_no"]]);
+          await db.query("UPDATE person SET name = $1, phone = $2 WHERE identity_no = $3", [p["name"], p["phone"] ? p["phone"] : old_p["phone"], p["identity_no"]]);
           pids.push(old_p["id"]);
-          cpids.push(old_p["id"]);
+          const cp1 = {
+            id: old_p["id"],
+            name: old_p["name"],
+            identity_no: old_p["identity_no"]
+          };
+          cpids.push(cp1);
         } else {
-          cpids.push(old_p["id"]);
+          const cp2 = {
+            id: old_p["id"],
+            name: old_p["name"],
+            identity_no: old_p["identity_no"]
+          };
+          cpids.push(cp2);
         }
       }
     }
@@ -70,24 +86,25 @@ processor.callAsync("createPerson", async (ctx: ProcessorContext, people: Object
 
 
 
-processor.callAsync("updateViews", async (ctx: ProcessorContext, pid: string, identity_frontal_view?: string, identity_rear_view?: string, license_frontal_view?: string) => {
-  log.info(`updateViews, pid:${pid},identity_frontal_view: ${identity_frontal_view}, identity_rear_view: ${identity_rear_view},license_frontal_view: ${license_frontal_view}`);
+processor.callAsync("updateViews", async (ctx: ProcessorContext, images: Object[]) => {
+  log.info(`updateViews, images: ${JSON.stringify(images)}`);
   const db: PGClient = ctx.db;
   const cache: RedisClient = ctx.cache;
   try {
-    const old_p = await db.query("SELECT id,identity_frontal_view,identity_rear_view,license_frontal_view FROM person WHERE id = $1", [pid]);
-    if (old_p.rowCount === 0) {
-      return { code: 404, msg: "未找到对应人员信息" };
-    } else {
-      await db.query("BEGIN");
-      const new_identity_frontal_view = identity_frontal_view ? identity_frontal_view : old_p["rows"][0]["identity_frontal_view"];
-      const new_identity_rear_view = identity_rear_view ? identity_rear_view : old_p["rows"][0]["identity_rear_view"];
-      const new_license_frontal_view = license_frontal_view ? license_frontal_view : old_p["rows"][0]["license_frontal_view"];
-      await db.query("UPDATE person SET identity_frontal_view = $1,identity_rear_view = $2, license_frontal_view = $3 WHERE id = $4", [new_identity_frontal_view, new_identity_rear_view, new_license_frontal_view, pid]);
-      async_person(db, cache, pid);
-      await db.query("COMMIT");
-      return { code: 200, data: pid };
+    const pids = [];
+    for (const p of images) {
+      const old_p = await db.query("SELECT id, identity_frontal_view, identity_rear_view, license_frontal_view FROM person WHERE id = $1", [p["pid"]]);
+      if (old_p.rowCount === 0) {
+        return { code: 404, msg: "未找到对应人员信息" };
+      } else {
+        await db.query("BEGIN");
+        await db.query("UPDATE person SET identity_frontal_view = $1,identity_rear_view = $2, license_frontal_view = $3 WHERE id = $4", [p["identity_frontal_view"], p["identity_rear_view"], p["license_frontal_view"], p["pid"]]);
+        async_person(db, cache, p["pid"]);
+        await db.query("COMMIT");
+        pids.push(p["pid"]);
+      }
     }
+    return { code: 200, data: pids };
   } catch (e) {
     log.info(e);
     await db.query("ROLLBACK");
@@ -97,18 +114,18 @@ processor.callAsync("updateViews", async (ctx: ProcessorContext, pid: string, id
 
 
 
-processor.callAsync("setPersonVerified", async (ctx: ProcessorContext, identiy_no: string, flag: boolean) => {
-  log.info(`setPersonVerified, identiy_no: ${identiy_no},flag: ${flag}`);
+processor.callAsync("setPersonVerified", async (ctx: ProcessorContext, identity_no: string, flag: boolean) => {
+  log.info(`setPersonVerified, identity_no: ${identity_no},flag: ${flag}`);
   const db: PGClient = ctx.db;
   const cache: RedisClient = ctx.cache;
   try {
-    const prep = await db.query("SELECT id FROM person WHERE identiy_no = $1", [identiy_no]);
+    const prep = await db.query("SELECT id FROM person WHERE identity_no = $1", [identity_no]);
     if (prep.rowCount === 0) {
       return { code: 404, msg: "未找到对应人员信息" };
     } else {
       const id = prep["rows"][0]["id"];
       await db.query("BEGIN");
-      await db.query("UPDATE person SET verified = $1 WHERE identity_no = $2", [flag, identiy_no]);
+      await db.query("UPDATE person SET verified = $1 WHERE identity_no = $2", [flag, identity_no]);
       async_person(db, cache, id);
       await db.query("COMMIT");
       return { code: 200, data: "Success" };
@@ -123,7 +140,7 @@ processor.callAsync("setPersonVerified", async (ctx: ProcessorContext, identiy_n
 
 async function async_person(db: PGClient, cache: RedisClient, id?: string): Promise<any> {
   try {
-    const prep = await db.query("SELECT id, name, identity_no, phone, email, address, identity_frontal_view, identity_rear_view, license_frontal_view, verified FROM person WHERE deleted = false" + (id ? "AND id = $1" : ""), id ? [id] : []);
+    const prep = await db.query("SELECT id, name, identity_no, phone, email, address, identity_frontal_view, identity_rear_view, license_frontal_view, verified FROM person WHERE deleted = false" + (id ? " AND id = $1" : ""), id ? [id] : []);
     const person = [];
     for (const row of prep["rows"]) {
       const p = {
